@@ -10,7 +10,7 @@ import cv2
 import ddddocr
 import requests
 from selenium import webdriver
-from selenium.common import TimeoutException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -22,6 +22,11 @@ from selenium.webdriver.support.wait import WebDriverWait
 COOKIE_FILE = "cookies.json"
 # 积分兑换人民币比例 (2000积分 = 1元)
 POINTS_TO_CNY_RATE = 2000
+
+# 自定义异常：验证码处理过程中可重试的错误
+class CaptchaRetryableError(Exception):
+    """可重试的验证码处理错误（如下载失败、网络问题等）"""
+    pass
 
 try:
     from notify import send
@@ -117,14 +122,16 @@ def do_login(driver: WebDriver, wait: WebDriverWait, user: str, pwd: str) -> boo
             return False
     except TimeoutException:
         logger.info("未触发验证码")
-    time.sleep(5)
+    time.sleep(2)  # 给页面一点点缓冲时间
     driver.switch_to.default_content()
-    if driver.current_url == "https://app.rainyun.com/dashboard":
+    try:
+        # 使用显式等待检测登录是否成功（通过判断 URL 变化）
+        wait.until(EC.url_contains("dashboard"))
         logger.info("登录成功！")
         save_cookies(driver)
         return True
-    else:
-        logger.error("登录失败！")
+    except TimeoutException:
+        logger.error(f"登录超时或失败！当前 URL: {driver.current_url}")
         return False
 
 
@@ -151,27 +158,49 @@ def init_selenium() -> WebDriver:
 
 def download_image(url, filename):
     os.makedirs("temp", exist_ok=True)
-    response = requests.get(url, timeout=10)
-    if response.status_code == 200:
-        path = os.path.join("temp", filename)
-        with open(path, "wb") as f:
-            f.write(response.content)
-        return True
-    else:
-        logger.error("下载图片失败！")
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            path = os.path.join("temp", filename)
+            with open(path, "wb") as f:
+                f.write(response.content)
+            return True
+        else:
+            logger.error(f"下载图片失败！状态码: {response.status_code}, URL: {url}")
+            return False
+    except requests.RequestException as e:
+        logger.error(f"下载图片失败 (网络错误): {url}, 异常: {e}")
         return False
 
 
 def get_url_from_style(style):
-    return re.search(r'url\([\"\'\ ]?(.*?)[\"\'\ ]?\)', style).group(1)
+    # 修复：添加空值保护
+    if not style:
+        raise ValueError("style 属性为空，无法解析 URL")
+    match = re.search(r'url\([\"\'\\ ]?(.*?)[\"\'\\ ]?\)', style)
+    if not match:
+        raise ValueError(f"无法从 style 中解析 URL: {style}")
+    return match.group(1)
 
 
 def get_width_from_style(style):
-    return re.search(r'width:\s*([\d.]+)px', style).group(1)
+    # 修复：添加空值保护
+    if not style:
+        raise ValueError("style 属性为空，无法解析宽度")
+    match = re.search(r'width:\s*([\d.]+)px', style)
+    if not match:
+        raise ValueError(f"无法从 style 中解析宽度: {style}")
+    return match.group(1)
 
 
 def get_height_from_style(style):
-    return re.search(r'height:\s*([\d.]+)px', style).group(1)
+    # 修复：添加空值保护
+    if not style:
+        raise ValueError("style 属性为空，无法解析高度")
+    match = re.search(r'height:\s*([\d.]+)px', style)
+    if not match:
+        raise ValueError(f"无法从 style 中解析高度: {style}")
+    return match.group(1)
 
 
 def process_captcha(retry_count=0):
@@ -183,6 +212,10 @@ def process_captcha(retry_count=0):
         if check_captcha():
             logger.info(f"开始识别验证码 (第 {retry_count + 1} 次尝试)")
             captcha = cv2.imread("temp/captcha.jpg")
+            # 修复：检查图片是否成功读取
+            if captcha is None:
+                logger.error("验证码背景图读取失败，可能下载不完整")
+                raise CaptchaRetryableError("验证码图片读取失败")
             with open("temp/captcha.jpg", 'rb') as f:
                 captcha_b = f.read()
             bboxes = det.detection(captcha_b)
@@ -237,9 +270,19 @@ def process_captcha(retry_count=0):
         reload_btn.click()
         time.sleep(2)
         return process_captcha(retry_count + 1)
-    except TimeoutException:
-        logger.error("获取验证码图片失败")
-        return False
+    except (TimeoutException, ValueError, CaptchaRetryableError) as e:
+        # 修复：仅捕获预期异常（超时、解析失败、下载失败），其他程序错误直接抛出便于排查
+        logger.error(f"验证码处理异常: {type(e).__name__} - {e}")
+        # 尝试刷新验证码重试
+        try:
+            reload_btn = driver.find_element(By.XPATH, '//*[@id="reload"]')
+            time.sleep(2)
+            reload_btn.click()
+            time.sleep(2)
+            return process_captcha(retry_count + 1)
+        except Exception as refresh_error:
+            logger.error(f"无法刷新验证码，放弃重试: {refresh_error}")
+            return False
 
 
 def download_captcha_img():
@@ -252,15 +295,23 @@ def download_captcha_img():
     img1_style = slideBg.get_attribute("style")
     img1_url = get_url_from_style(img1_style)
     logger.info("开始下载验证码图片(1): " + img1_url)
-    download_image(img1_url, "captcha.jpg")
+    # 修复：检查下载是否成功
+    if not download_image(img1_url, "captcha.jpg"):
+        raise CaptchaRetryableError("验证码背景图下载失败")
     sprite = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="instruction"]/div/img')))
     img2_url = sprite.get_attribute("src")
     logger.info("开始下载验证码图片(2): " + img2_url)
-    download_image(img2_url, "sprite.jpg")
+    # 修复：检查下载是否成功
+    if not download_image(img2_url, "sprite.jpg"):
+        raise CaptchaRetryableError("验证码小图下载失败")
 
 
 def check_captcha() -> bool:
     raw = cv2.imread("temp/sprite.jpg")
+    # 修复：检查图片是否成功读取
+    if raw is None:
+        logger.error("验证码小图读取失败，可能下载不完整")
+        return False
     for i in range(3):
         w = raw.shape[1]
         temp = raw[:, w // 3 * i: w // 3 * (i + 1)]
@@ -272,8 +323,13 @@ def check_captcha() -> bool:
     return True
 
 
-# 检查是否存在重复坐标，快速判断识别错误
+# 检查是否存在重复坐标,快速判断识别错误
 def check_answer(d: dict) -> bool:
+    # 修复：空字典或不完整结果直接返回 False
+    # 需要 3 个 sprite 的 similarity + position = 6 个键
+    if not d or len(d) < 6:
+        logger.warning(f"验证码识别结果不完整，当前仅有 {len(d)} 个键，预期至少 6 个")
+        return False
     flipped = dict()
     for key in d.keys():
         flipped[d[key]] = key
@@ -322,12 +378,15 @@ def run():
             logger.error("请设置 RAINYUN_USER 和 RAINYUN_PWD 环境变量")
             return
 
-        # 以下为代码执行区域，请勿修改！
+        # 检查环境模式 (Linux/Windows)
+        linux = os.environ.get("LINUX_MODE", "true").lower() == "true"
+        debug = os.environ.get("DEBUG", "false").lower() == "true"
 
         ver = "2.2"
         logger.info("------------------------------------------------------------------")
-        logger.info(f"雨云签到工具 v{ver} by SerendipityR ~")
-        logger.info("Github发布页: https://github.com/SerendipityR-2022/Rainyun-Qiandao")
+        logger.info(f"雨云签到工具 v{ver} - 稳定性优化版")
+        logger.info("二改仓库: https://github.com/Jielumoon/Rainyun-Qiandao")
+        logger.info("原作者: SerendipityR | https://github.com/SerendipityR-2022/Rainyun-Qiandao")
         logger.info("------------------------------------------------------------------")
 
         delay = random.randint(0, max_delay)
@@ -392,6 +451,8 @@ def run():
         logger.info("处理验证码")
         driver.switch_to.frame("tcaptcha_iframe_dy")
         if not process_captcha():
+            # 失败时尝试记录当前页面源码的关键部分，方便排查
+            logger.error(f"验证码重试次数过多，任务失败。当前页面状态: {driver.current_url}")
             raise Exception("验证码识别重试次数过多，签到失败")
         driver.switch_to.default_content()
         points_raw = wait.until(EC.visibility_of_element_located((By.XPATH,

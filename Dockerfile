@@ -34,7 +34,9 @@ WORKDIR /app
 
 # 复制依赖文件并安装
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 升级 pip 并安装依赖（修复 metadata 损坏问题）
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --force-reinstall -r requirements.txt
 
 # 复制应用代码
 COPY rainyun.py .

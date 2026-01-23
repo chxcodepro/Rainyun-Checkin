@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # _*_ coding:utf-8 _*_
 import base64
 import hashlib
@@ -15,7 +15,6 @@ from email.header import Header
 from email.utils import formataddr
 
 import requests
-
 import logging
 
 # 配置 logger
@@ -155,7 +154,7 @@ def bark(title: str, content: str) -> None:
     """
     if not push_config.get("BARK_PUSH"):
         return
-    print("bark 服务启动")
+    logger.info("bark 服务启动")
 
     if push_config.get("BARK_PUSH").startswith("http"):
         url = f'{push_config.get("BARK_PUSH")}'
@@ -183,14 +182,17 @@ def bark(title: str, content: str) -> None:
     ):
         data[bark_params.get(pair[0])] = pair[1]
     headers = {"Content-Type": "application/json;charset=utf-8"}
-    response = requests.post(
-        url=url, data=json.dumps(data), headers=headers, timeout=15
-    ).json()
+    try:
+        response = requests.post(
+            url=url, data=json.dumps(data), headers=headers, timeout=15
+        ).json()
 
-    if response["code"] == 200:
-        print("bark 推送成功！")
-    else:
-        print("bark 推送失败！")
+        if response.get("code") == 200:
+            logger.info("bark 推送成功！")
+        else:
+            logger.error(f"bark 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"bark 推送异常: {e}")
 
 
 def console(title: str, content: str) -> None:
@@ -206,7 +208,7 @@ def dingding_bot(title: str, content: str) -> None:
     """
     if not push_config.get("DD_BOT_SECRET") or not push_config.get("DD_BOT_TOKEN"):
         return
-    print("钉钉机器人 服务启动")
+    logger.info("钉钉机器人 服务启动")
 
     timestamp = str(round(time.time() * 1000))
     secret_enc = push_config.get("DD_BOT_SECRET").encode("utf-8")
@@ -219,14 +221,17 @@ def dingding_bot(title: str, content: str) -> None:
     url = f'https://oapi.dingtalk.com/robot/send?access_token={push_config.get("DD_BOT_TOKEN")}&timestamp={timestamp}&sign={sign}'
     headers = {"Content-Type": "application/json;charset=utf-8"}
     data = {"msgtype": "text", "text": {"content": f"{title}\n\n{content}"}}
-    response = requests.post(
-        url=url, data=json.dumps(data), headers=headers, timeout=15
-    ).json()
+    try:
+        response = requests.post(
+            url=url, data=json.dumps(data), headers=headers, timeout=15
+        ).json()
 
-    if not response["errcode"]:
-        print("钉钉机器人 推送成功！")
-    else:
-        print("钉钉机器人 推送失败！")
+        if not response.get("errcode"):
+            logger.info("钉钉机器人 推送成功！")
+        else:
+            logger.error(f"钉钉机器人 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"钉钉机器人 推送异常: {e}")
 
 
 def feishu_bot(title: str, content: str) -> None:
@@ -235,14 +240,11 @@ def feishu_bot(title: str, content: str) -> None:
     """
     if not push_config.get("FSKEY"):
         return
-    print("飞书 服务启动")
+    logger.info("飞书 服务启动")
 
     url = f'https://open.feishu.cn/open-apis/bot/v2/hook/{push_config.get("FSKEY")}'
     data = {"msg_type": "text", "content": {"text": f"{title}\n\n{content}"}}
 
-    # Add signature if secret is provided
-    # Note: Feishu's signature algorithm uses timestamp+"\n"+secret as the HMAC key
-    # and signs an empty message, which differs from typical HMAC usage
     if push_config.get("FSSECRET"):
         timestamp = str(int(time.time()))
         string_to_sign = f'{timestamp}\n{push_config.get("FSSECRET")}'
@@ -253,12 +255,15 @@ def feishu_bot(title: str, content: str) -> None:
         data["timestamp"] = timestamp
         data["sign"] = sign
 
-    response = requests.post(url, data=json.dumps(data)).json()
+    try:
+        response = requests.post(url, data=json.dumps(data), timeout=15).json()
 
-    if response.get("StatusCode") == 0 or response.get("code") == 0:
-        print("飞书 推送成功！")
-    else:
-        print("飞书 推送失败！错误信息如下：\n", response)
+        if response.get("StatusCode") == 0 or response.get("code") == 0:
+            logger.info("飞书 推送成功！")
+        else:
+            logger.error(f"飞书 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"飞书 推送异常: {e}")
 
 
 def go_cqhttp(title: str, content: str) -> None:
@@ -267,15 +272,18 @@ def go_cqhttp(title: str, content: str) -> None:
     """
     if not push_config.get("GOBOT_URL") or not push_config.get("GOBOT_QQ"):
         return
-    print("go-cqhttp 服务启动")
+    logger.info("go-cqhttp 服务启动")
 
     url = f'{push_config.get("GOBOT_URL")}?access_token={push_config.get("GOBOT_TOKEN")}&{push_config.get("GOBOT_QQ")}&message=标题:{title}\n内容:{content}'
-    response = requests.get(url).json()
+    try:
+        response = requests.get(url, timeout=15).json()
 
-    if response["status"] == "ok":
-        print("go-cqhttp 推送成功！")
-    else:
-        print("go-cqhttp 推送失败！")
+        if response.get("status") == "ok":
+            logger.info("go-cqhttp 推送成功！")
+        else:
+            logger.error(f"go-cqhttp 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"go-cqhttp 推送异常: {e}")
 
 
 def gotify(title: str, content: str) -> None:
@@ -284,7 +292,7 @@ def gotify(title: str, content: str) -> None:
     """
     if not push_config.get("GOTIFY_URL") or not push_config.get("GOTIFY_TOKEN"):
         return
-    print("gotify 服务启动")
+    logger.info("gotify 服务启动")
 
     url = f'{push_config.get("GOTIFY_URL")}/message?token={push_config.get("GOTIFY_TOKEN")}'
     data = {
@@ -292,12 +300,15 @@ def gotify(title: str, content: str) -> None:
         "message": content,
         "priority": push_config.get("GOTIFY_PRIORITY"),
     }
-    response = requests.post(url, data=data).json()
+    try:
+        response = requests.post(url, data=data, timeout=15).json()
 
-    if response.get("id"):
-        print("gotify 推送成功！")
-    else:
-        print("gotify 推送失败！")
+        if response.get("id"):
+            logger.info("gotify 推送成功！")
+        else:
+            logger.error(f"gotify 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"gotify 推送异常: {e}")
 
 
 def iGot(title: str, content: str) -> None:
@@ -306,17 +317,20 @@ def iGot(title: str, content: str) -> None:
     """
     if not push_config.get("IGOT_PUSH_KEY"):
         return
-    print("iGot 服务启动")
+    logger.info("iGot 服务启动")
 
     url = f'https://push.hellyw.com/{push_config.get("IGOT_PUSH_KEY")}'
     data = {"title": title, "content": content}
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    response = requests.post(url, data=data, headers=headers).json()
+    try:
+        response = requests.post(url, data=data, headers=headers, timeout=15).json()
 
-    if response["ret"] == 0:
-        print("iGot 推送成功！")
-    else:
-        print(f'iGot 推送失败！{response["errMsg"]}')
+        if response.get("ret") == 0:
+            logger.info("iGot 推送成功！")
+        else:
+            logger.error(f'iGot 推送失败！{response.get("errMsg")}')
+    except Exception as e:
+        logger.error(f"iGot 推送异常: {e}")
 
 
 def serverJ(title: str, content: str) -> None:
@@ -325,7 +339,7 @@ def serverJ(title: str, content: str) -> None:
     """
     if not push_config.get("PUSH_KEY"):
         return
-    print("serverJ 服务启动")
+    logger.info("serverJ 服务启动")
 
     data = {"text": title, "desp": content.replace("\n", "\n\n")}
 
@@ -342,26 +356,15 @@ def serverJ(title: str, content: str) -> None:
         try:
             response = requests.post(url, data=data, timeout=15).json()
             if response.get("errno") == 0 or response.get("code") == 0:
-                print("serverJ 推送成功！")
+                logger.info("serverJ 推送成功！")
             else:
-                print(f'serverJ 推送失败！错误码：{response.get("message", "未知错误")}')
+                logger.error(f'serverJ 推送失败！错误信息：{response.get("message", "未知错误")}')
             return
-        except requests.exceptions.SSLError as e:
-            print(f"serverJ SSL错误（第{attempt + 1}次）：{e}")
-            if attempt < max_retries - 1:
-                time.sleep(2)  # 等待2秒后重试
-        except requests.exceptions.Timeout:
-            print(f"serverJ 请求超时（第{attempt + 1}次）")
-            if attempt < max_retries - 1:
-                time.sleep(2)
-        except requests.exceptions.RequestException as e:
-            print(f"serverJ 请求异常（第{attempt + 1}次）：{e}")
-            if attempt < max_retries - 1:
-                time.sleep(2)
         except Exception as e:
-            print(f"serverJ 未知错误：{e}")
-            return
-    print(f"serverJ 推送失败！已重试{max_retries}次")
+            logger.error(f"serverJ 推送异常（第{attempt + 1}次）：{e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+    logger.error(f"serverJ 推送失败！已重试{max_retries}次")
 
 
 def pushdeer(title: str, content: str) -> None:
@@ -370,7 +373,7 @@ def pushdeer(title: str, content: str) -> None:
     """
     if not push_config.get("DEER_KEY"):
         return
-    print("PushDeer 服务启动")
+    logger.info("PushDeer 服务启动")
     data = {
         "text": title,
         "desp": content,
@@ -381,12 +384,16 @@ def pushdeer(title: str, content: str) -> None:
     if push_config.get("DEER_URL"):
         url = push_config.get("DEER_URL")
 
-    response = requests.post(url, data=data).json()
-
-    if len(response.get("content").get("result")) > 0:
-        print("PushDeer 推送成功！")
-    else:
-        print("PushDeer 推送失败！错误信息：", response)
+    try:
+        response = requests.post(url, data=data, timeout=15).json()
+        # 安全取值：先检查 response 和 content
+        content_res = response.get("content")
+        if content_res and isinstance(content_res, dict) and len(content_res.get("result", [])) > 0:
+            logger.info("PushDeer 推送成功！")
+        else:
+            logger.error(f"PushDeer 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"PushDeer 推送异常: {e}")
 
 
 def chat(title: str, content: str) -> None:
@@ -395,15 +402,17 @@ def chat(title: str, content: str) -> None:
     """
     if not push_config.get("CHAT_URL") or not push_config.get("CHAT_TOKEN"):
         return
-    print("chat 服务启动")
+    logger.info("chat 服务启动")
     data = "payload=" + json.dumps({"text": title + "\n" + content})
     url = push_config.get("CHAT_URL") + push_config.get("CHAT_TOKEN")
-    response = requests.post(url, data=data)
-
-    if response.status_code == 200:
-        print("Chat 推送成功！")
-    else:
-        print("Chat 推送失败！错误信息：", response)
+    try:
+        response = requests.post(url, data=data, timeout=15)
+        if response.status_code == 200:
+            logger.info("Chat 推送成功！")
+        else:
+            logger.error(f"Chat 推送失败！状态码: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Chat 推送异常: {e}")
 
 
 def pushplus_bot(title: str, content: str) -> None:
@@ -412,7 +421,7 @@ def pushplus_bot(title: str, content: str) -> None:
     """
     if not push_config.get("PUSH_PLUS_TOKEN"):
         return
-    print("PUSHPLUS 服务启动")
+    logger.info("PUSHPLUS 服务启动")
 
     url = "https://www.pushplus.plus/send"
     data = {
@@ -428,27 +437,25 @@ def pushplus_bot(title: str, content: str) -> None:
     }
     body = json.dumps(data).encode(encoding="utf-8")
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url=url, data=body, headers=headers).json()
+    try:
+        response = requests.post(url=url, data=body, headers=headers, timeout=15).json()
 
-    code = response["code"]
-    if code == 200:
-        print("PUSHPLUS 推送请求成功，可根据流水号查询推送结果:" + response["data"])
-        print(
-            "注意：请求成功并不代表推送成功，如未收到消息，请到pushplus官网使用流水号查询推送最终结果"
-        )
-    elif code == 900 or code == 903 or code == 905 or code == 999:
-        print(response["msg"])
-
-    else:
-        url_old = "http://pushplus.hxtrip.com/send"
-        headers["Accept"] = "application/json"
-        response = requests.post(url=url_old, data=body, headers=headers).json()
-
-        if response["code"] == 200:
-            print("PUSHPLUS(hxtrip) 推送成功！")
-
+        code = response.get("code")
+        if code == 200:
+            logger.info(f"PUSHPLUS 推送请求成功，流水号: {response.get('data')}")
+        elif code in [900, 903, 905, 999]:
+            logger.error(f"PUSHPLUS 推送失败: {response.get('msg')}")
         else:
-            print("PUSHPLUS 推送失败！")
+            # 备用接口
+            url_old = "http://pushplus.hxtrip.com/send"
+            headers["Accept"] = "application/json"
+            response = requests.post(url=url_old, data=body, headers=headers, timeout=15).json()
+            if response.get("code") == 200:
+                logger.info("PUSHPLUS(hxtrip) 推送成功！")
+            else:
+                logger.error(f"PUSHPLUS 备用接口也失败了: {response}")
+    except Exception as e:
+        logger.error(f"PUSHPLUS 推送异常: {e}")
 
 
 def weplus_bot(title: str, content: str) -> None:
@@ -457,7 +464,7 @@ def weplus_bot(title: str, content: str) -> None:
     """
     if not push_config.get("WE_PLUS_BOT_TOKEN"):
         return
-    print("微加机器人 服务启动")
+    logger.info("微加机器人 服务启动")
 
     template = "txt"
     if len(content) > 800:
@@ -474,12 +481,15 @@ def weplus_bot(title: str, content: str) -> None:
     }
     body = json.dumps(data).encode(encoding="utf-8")
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url=url, data=body, headers=headers).json()
+    try:
+        response = requests.post(url=url, data=body, headers=headers, timeout=15).json()
 
-    if response["code"] == 200:
-        print("微加机器人 推送成功！")
-    else:
-        print("微加机器人 推送失败！")
+        if response.get("code") == 200:
+            logger.info("微加机器人 推送成功！")
+        else:
+            logger.error(f"微加机器人 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"微加机器人 推送异常: {e}")
 
 
 def qmsg_bot(title: str, content: str) -> None:
@@ -488,16 +498,19 @@ def qmsg_bot(title: str, content: str) -> None:
     """
     if not push_config.get("QMSG_KEY") or not push_config.get("QMSG_TYPE"):
         return
-    print("qmsg 服务启动")
+    logger.info("qmsg 服务启动")
 
     url = f'https://qmsg.zendee.cn/{push_config.get("QMSG_TYPE")}/{push_config.get("QMSG_KEY")}'
     payload = {"msg": f'{title}\n\n{content.replace("----", "-")}'.encode("utf-8")}
-    response = requests.post(url=url, params=payload).json()
+    try:
+        response = requests.post(url=url, params=payload, timeout=15).json()
 
-    if response["code"] == 0:
-        print("qmsg 推送成功！")
-    else:
-        print(f'qmsg 推送失败！{response["reason"]}')
+        if response.get("code") == 0:
+            logger.info("qmsg 推送成功！")
+        else:
+            logger.error(f'qmsg 推送失败！原因: {response.get("reason")}')
+    except Exception as e:
+        logger.error(f"qmsg 推送异常: {e}")
 
 
 def wecom_app(title: str, content: str) -> None:
@@ -507,10 +520,11 @@ def wecom_app(title: str, content: str) -> None:
     if not push_config.get("QYWX_AM"):
         return
     QYWX_AM_AY = re.split(",", push_config.get("QYWX_AM"))
-    if 4 < len(QYWX_AM_AY) > 5:
-        print("QYWX_AM 设置错误!!")
+    # 修复：条件逻辑错误，应该是"长度不在 4~5 之间时报错"
+    if not (4 <= len(QYWX_AM_AY) <= 5):
+        logger.error("QYWX_AM 设置错误!!")
         return
-    print("企业微信 APP 服务启动")
+    logger.info("企业微信 APP 服务启动")
 
     corpid = QYWX_AM_AY[0]
     corpsecret = QYWX_AM_AY[1]
@@ -520,18 +534,21 @@ def wecom_app(title: str, content: str) -> None:
         media_id = QYWX_AM_AY[4]
     except IndexError:
         media_id = ""
-    wx = WeCom(corpid, corpsecret, agentid)
-    # 如果没有配置 media_id 默认就以 text 方式发送
-    if not media_id:
-        message = title + "\n\n" + content
-        response = wx.send_text(message, touser)
-    else:
-        response = wx.send_mpnews(title, content, media_id, touser)
 
-    if response == "ok":
-        print("企业微信推送成功！")
-    else:
-        print("企业微信推送失败！错误信息如下：\n", response)
+    try:
+        wx = WeCom(corpid, corpsecret, agentid)
+        if not media_id:
+            message = title + "\n\n" + content
+            response = wx.send_text(message, touser)
+        else:
+            response = wx.send_mpnews(title, content, media_id, touser)
+
+        if response == "ok":
+            logger.info("企业微信推送成功！")
+        else:
+            logger.error(f"企业微信推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"企业微信推送异常: {e}")
 
 
 class WeCom:
@@ -549,7 +566,7 @@ class WeCom:
             "corpid": self.CORPID,
             "corpsecret": self.CORPSECRET,
         }
-        req = requests.post(url, params=values)
+        req = requests.post(url, params=values, timeout=15)
         data = json.loads(req.text)
         return data["access_token"]
 
@@ -565,7 +582,7 @@ class WeCom:
             "safe": "0",
         }
         send_msges = bytes(json.dumps(send_values), "utf-8")
-        respone = requests.post(send_url, send_msges)
+        respone = requests.post(send_url, send_msges, timeout=15)
         respone = respone.json()
         return respone["errmsg"]
 
@@ -591,7 +608,7 @@ class WeCom:
             },
         }
         send_msges = bytes(json.dumps(send_values), "utf-8")
-        respone = requests.post(send_url, send_msges)
+        respone = requests.post(send_url, send_msges, timeout=15)
         respone = respone.json()
         return respone["errmsg"]
 
@@ -602,7 +619,7 @@ def wecom_bot(title: str, content: str) -> None:
     """
     if not push_config.get("QYWX_KEY"):
         return
-    print("企业微信机器人服务启动")
+    logger.info("企业微信机器人服务启动")
 
     origin = "https://qyapi.weixin.qq.com"
     if push_config.get("QYWX_ORIGIN"):
@@ -611,14 +628,17 @@ def wecom_bot(title: str, content: str) -> None:
     url = f"{origin}/cgi-bin/webhook/send?key={push_config.get('QYWX_KEY')}"
     headers = {"Content-Type": "application/json;charset=utf-8"}
     data = {"msgtype": "text", "text": {"content": f"{title}\n\n{content}"}}
-    response = requests.post(
-        url=url, data=json.dumps(data), headers=headers, timeout=15
-    ).json()
+    try:
+        response = requests.post(
+            url=url, data=json.dumps(data), headers=headers, timeout=15
+        ).json()
 
-    if response["errcode"] == 0:
-        print("企业微信机器人推送成功！")
-    else:
-        print("企业微信机器人推送失败！")
+        if response.get("errcode") == 0:
+            logger.info("企业微信机器人推送成功！")
+        else:
+            logger.error(f"企业微信机器人推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"企业微信机器人推送异常: {e}")
 
 
 def telegram_bot(title: str, content: str) -> None:
@@ -627,7 +647,7 @@ def telegram_bot(title: str, content: str) -> None:
     """
     if not push_config.get("TG_BOT_TOKEN") or not push_config.get("TG_USER_ID"):
         return
-    print("tg 服务启动")
+    logger.info("tg 服务启动")
 
     if push_config.get("TG_API_HOST"):
         url = f"{push_config.get('TG_API_HOST')}/bot{push_config.get('TG_BOT_TOKEN')}/sendMessage"
@@ -655,14 +675,17 @@ def telegram_bot(title: str, content: str) -> None:
             push_config.get("TG_PROXY_HOST"), push_config.get("TG_PROXY_PORT")
         )
         proxies = {"http": proxyStr, "https": proxyStr}
-    response = requests.post(
-        url=url, headers=headers, params=payload, proxies=proxies
-    ).json()
+    try:
+        response = requests.post(
+            url=url, headers=headers, params=payload, proxies=proxies, timeout=15
+        ).json()
 
-    if response["ok"]:
-        print("tg 推送成功！")
-    else:
-        print("tg 推送失败！")
+        if response.get("ok"):
+            logger.info("tg 推送成功！")
+        else:
+            logger.error(f"tg 推送失败！响应: {response}")
+    except Exception as e:
+        logger.error(f"tg 推送异常: {e}")
 
 
 def aibotk(title: str, content: str) -> None:
@@ -675,7 +698,7 @@ def aibotk(title: str, content: str) -> None:
         or not push_config.get("AIBOTK_NAME")
     ):
         return
-    print("智能微秘书 服务启动")
+    logger.info("智能微秘书 服务启动")
 
     if push_config.get("AIBOTK_TYPE") == "room":
         url = "https://api-bot.aibotk.com/openapi/v1/chat/room"
@@ -693,12 +716,14 @@ def aibotk(title: str, content: str) -> None:
         }
     body = json.dumps(data).encode(encoding="utf-8")
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url=url, data=body, headers=headers).json()
-    print(response)
-    if response["code"] == 0:
-        print("智能微秘书 推送成功！")
-    else:
-        print(f'智能微秘书 推送失败！{response["error"]}')
+    try:
+        response = requests.post(url=url, data=body, headers=headers, timeout=15).json()
+        if response.get("code") == 0:
+            logger.info("智能微秘书 推送成功！")
+        else:
+            logger.error(f'智能微秘书 推送失败！错误: {response.get("error")}')
+    except Exception as e:
+        logger.error(f"智能微秘书 推送异常: {e}")
 
 
 def smtp(title: str, content: str) -> None:
@@ -713,7 +738,7 @@ def smtp(title: str, content: str) -> None:
         or not push_config.get("SMTP_NAME")
     ):
         return
-    print("SMTP 邮件 服务启动")
+    logger.info("SMTP 邮件 服务启动")
 
     message = MIMEText(content, "plain", "utf-8")
     message["From"] = formataddr(
@@ -732,9 +757,9 @@ def smtp(title: str, content: str) -> None:
 
     try:
         smtp_server = (
-            smtplib.SMTP_SSL(push_config.get("SMTP_SERVER"))
+            smtplib.SMTP_SSL(push_config.get("SMTP_SERVER"), timeout=15)
             if push_config.get("SMTP_SSL") == "true"
-            else smtplib.SMTP(push_config.get("SMTP_SERVER"))
+            else smtplib.SMTP(push_config.get("SMTP_SERVER"), timeout=15)
         )
         smtp_server.login(
             push_config.get("SMTP_EMAIL"), push_config.get("SMTP_PASSWORD")
@@ -745,9 +770,9 @@ def smtp(title: str, content: str) -> None:
             message.as_bytes(),
         )
         smtp_server.close()
-        print("SMTP 邮件 推送成功！")
+        logger.info("SMTP 邮件 推送成功！")
     except Exception as e:
-        print(f"SMTP 邮件 推送失败！{e}")
+        logger.error(f"SMTP 邮件 推送失败！{e}")
 
 
 def pushme(title: str, content: str) -> None:
@@ -756,7 +781,7 @@ def pushme(title: str, content: str) -> None:
     """
     if not push_config.get("PUSHME_KEY"):
         return
-    print("PushMe 服务启动")
+    logger.info("PushMe 服务启动")
 
     url = (
         push_config.get("PUSHME_URL")
@@ -770,12 +795,14 @@ def pushme(title: str, content: str) -> None:
         "date": push_config.get("date") if push_config.get("date") else "",
         "type": push_config.get("type") if push_config.get("type") else "",
     }
-    response = requests.post(url, data=data)
-
-    if response.status_code == 200 and response.text == "success":
-        print("PushMe 推送成功！")
-    else:
-        print(f"PushMe 推送失败！{response.status_code} {response.text}")
+    try:
+        response = requests.post(url, data=data, timeout=15)
+        if response.status_code == 200 and response.text == "success":
+            logger.info("PushMe 推送成功！")
+        else:
+            logger.error(f"PushMe 推送失败！状态码: {response.status_code} 响应: {response.text}")
+    except Exception as e:
+        logger.error(f"PushMe 推送异常: {e}")
 
 
 def chronocat(title: str, content: str) -> None:
@@ -789,7 +816,7 @@ def chronocat(title: str, content: str) -> None:
     ):
         return
 
-    print("CHRONOCAT 服务启动")
+    logger.info("CHRONOCAT 服务启动")
 
     user_ids = re.findall(r"user_id=(\d+)", push_config.get("CHRONOCAT_QQ"))
     group_ids = re.findall(r"group_id=(\d+)", push_config.get("CHRONOCAT_QQ"))
@@ -813,17 +840,14 @@ def chronocat(title: str, content: str) -> None:
                     }
                 ],
             }
-            response = requests.post(url, headers=headers, data=json.dumps(data))
-            if response.status_code == 200:
-                if chat_type == 1:
-                    print(f"QQ个人消息:{ids}推送成功！")
+            try:
+                response = requests.post(url, headers=headers, data=json.dumps(data), timeout=15)
+                if response.status_code == 200:
+                    logger.info(f"QQ消息({chat_id})推送成功！")
                 else:
-                    print(f"QQ群消息:{ids}推送成功！")
-            else:
-                if chat_type == 1:
-                    print(f"QQ个人消息:{ids}推送失败！")
-                else:
-                    print(f"QQ群消息:{ids}推送失败！")
+                    logger.error(f"QQ消息({chat_id})推送失败！状态码: {response.status_code}")
+            except Exception as e:
+                logger.error(f"QQ消息({chat_id})推送异常: {e}")
 
 
 def ntfy(title: str, content: str) -> None:
@@ -839,10 +863,10 @@ def ntfy(title: str, content: str) -> None:
 
     if not push_config.get("NTFY_TOPIC"):
         return
-    print("ntfy 服务启动")
+    logger.info("ntfy 服务启动")
     priority = "3"
     if not push_config.get("NTFY_PRIORITY"):
-        print("ntfy 服务的NTFY_PRIORITY 未设置!!默认设置为3")
+        logger.warning("ntfy 服务的NTFY_PRIORITY 未设置!!默认设置为3")
     else:
         priority = push_config.get("NTFY_PRIORITY")
 
@@ -860,11 +884,14 @@ def ntfy(title: str, content: str) -> None:
         headers['Actions'] = encode_rfc2047(push_config.get("NTFY_ACTIONS"))
 
     url = push_config.get("NTFY_URL") + "/" + push_config.get("NTFY_TOPIC")
-    response = requests.post(url, data=data, headers=headers)
-    if response.status_code == 200:  # 使用 response.status_code 进行检查
-        print("Ntfy 推送成功！")
-    else:
-        print("Ntfy 推送失败！错误信息：", response.text)
+    try:
+        response = requests.post(url, data=data, headers=headers, timeout=15)
+        if response.status_code == 200:
+            logger.info("Ntfy 推送成功！")
+        else:
+            logger.error(f"Ntfy 推送失败！状态码: {response.status_code} 响应: {response.text}")
+    except Exception as e:
+        logger.error(f"Ntfy 推送异常: {e}")
 
 
 def wxpusher_bot(title: str, content: str) -> None:
@@ -899,10 +926,10 @@ def wxpusher_bot(title: str, content: str) -> None:
 
     # topic_ids uids 至少有一个
     if not topic_ids and not uids:
-        print("wxpusher 服务的 WXPUSHER_TOPIC_IDS 和 WXPUSHER_UIDS 至少设置一个!!")
+        logger.warning("wxpusher 服务的 WXPUSHER_TOPIC_IDS 和 WXPUSHER_UIDS 至少设置一个!!")
         return
 
-    print("wxpusher 服务启动")
+    logger.info("wxpusher 服务启动")
 
     data = {
         "appToken": push_config.get("WXPUSHER_APP_TOKEN"),
@@ -915,12 +942,15 @@ def wxpusher_bot(title: str, content: str) -> None:
     }
 
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url=url, json=data, headers=headers).json()
+    try:
+        response = requests.post(url=url, json=data, headers=headers, timeout=15).json()
 
-    if response.get("code") == 1000:
-        print("wxpusher 推送成功！")
-    else:
-        print(f"wxpusher 推送失败！错误信息：{response.get('msg')}")
+        if response.get("code") == 1000:
+            logger.info("wxpusher 推送成功！")
+        else:
+            logger.error(f"wxpusher 推送失败！原因: {response.get('msg')}")
+    except Exception as e:
+        logger.error(f"wxpusher 推送异常: {e}")
 
 
 def parse_headers(headers):
@@ -981,7 +1011,7 @@ def custom_notify(title: str, content: str) -> None:
     if not push_config.get("WEBHOOK_URL") or not push_config.get("WEBHOOK_METHOD"):
         return
 
-    print("自定义通知服务启动")
+    logger.info("自定义通知服务启动")
 
     WEBHOOK_URL = push_config.get("WEBHOOK_URL")
     WEBHOOK_METHOD = push_config.get("WEBHOOK_METHOD")
@@ -990,7 +1020,7 @@ def custom_notify(title: str, content: str) -> None:
     WEBHOOK_HEADERS = push_config.get("WEBHOOK_HEADERS")
 
     if "$title" not in WEBHOOK_URL and "$title" not in WEBHOOK_BODY:
-        print("请求头或者请求体中必须包含 $title 和 $content")
+        logger.warning("自定义通知请求头或者请求体中必须包含 $title 和 $content")
         return
 
     headers = parse_headers(WEBHOOK_HEADERS)
@@ -1004,14 +1034,17 @@ def custom_notify(title: str, content: str) -> None:
     formatted_url = WEBHOOK_URL.replace(
         "$title", urllib.parse.quote_plus(title)
     ).replace("$content", urllib.parse.quote_plus(content))
-    response = requests.request(
-        method=WEBHOOK_METHOD, url=formatted_url, headers=headers, timeout=15, data=body
-    )
+    try:
+        response = requests.request(
+            method=WEBHOOK_METHOD, url=formatted_url, headers=headers, timeout=15, data=body
+        )
 
-    if response.status_code == 200:
-        print("自定义通知推送成功！")
-    else:
-        print(f"自定义通知推送失败！{response.status_code} {response.text}")
+        if response.status_code == 200:
+            logger.info("自定义通知推送成功！")
+        else:
+            logger.error(f"自定义通知推送失败！状态码: {response.status_code} 响应: {response.text}")
+    except Exception as e:
+        logger.error(f"自定义通知推送异常: {e}")
 
 
 def one() -> str:
@@ -1023,7 +1056,8 @@ def one() -> str:
         url = "https://v1.hitokoto.cn/"
         res = requests.get(url, timeout=5).json()
         return res["hitokoto"] + "    ----" + res["from"]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"获取一言失败 (拿不到就算了，不影响主流程): {e}")
         return ""
 
 
@@ -1092,7 +1126,7 @@ def add_notify_function():
     ):
         notify_function.append(wxpusher_bot)
     if not notify_function:
-        print(f"无推送渠道，请检查通知变量是否正确")
+        logger.warning("无有效推送渠道，请检查通知变量是否正确")
     return notify_function
 
 
@@ -1105,14 +1139,14 @@ def send(title: str, content: str, ignore_default_config: bool = False, **kwargs
             push_config.update(kwargs)
 
     if not content:
-        print(f"{title} 推送内容为空！")
+        logger.warning(f"{title} 推送内容为空！")
         return
 
     # 根据标题跳过一些消息推送，环境变量：SKIP_PUSH_TITLE 用回车分隔
     skipTitle = os.getenv("SKIP_PUSH_TITLE")
     if skipTitle:
         if title in re.split("\n", skipTitle):
-            print(f"{title} 在SKIP_PUSH_TITLE环境变量内，跳过推送！")
+            logger.info(f"{title} 在SKIP_PUSH_TITLE环境变量内，跳过推送！")
             return
 
     hitokoto = push_config.get("HITOKOTO")
@@ -1124,7 +1158,7 @@ def send(title: str, content: str, ignore_default_config: bool = False, **kwargs
         try:
             func(title, content)
         except Exception as e:
-            logger.error(f"{func.__name__} 推送异常: {e}")
+            logger.error(f"{func.__name__} 线程执行崩溃: {e}")
 
     ts = [
         threading.Thread(target=safe_run, args=(mode, title, content), name=mode.__name__)
