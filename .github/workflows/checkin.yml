@@ -6,8 +6,7 @@ on:
     workflow_dispatch:
     # 定时执行
     schedule:
-      - cron: '0 14 * * *'
-    #   - timezone: Asia/Shanghai
+      - cron: '0 8 * * *'
 
 # 工作
 jobs:
@@ -31,5 +30,4 @@ jobs:
       env:
         RAINYUN_USER: ${{ secrets.RAINYUN_USER }}
         RAINYUN_PWD: ${{ secrets.RAINYUN_PWD }}
-        IS_NOT_WAIT: true
-        
+        TIMEOUT: ${{ secrets.RAINYUN_PWD }}

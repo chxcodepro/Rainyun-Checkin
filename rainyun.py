@@ -40,7 +40,6 @@ class CaptchaRetryableError(Exception):
 
 try:
     from notify import send
-
     print("✅ 通知模块加载成功")
 except Exception as e:
     print(f"⚠️ 通知模块加载失败：{e}")
@@ -48,16 +47,6 @@ except Exception as e:
     def send(title, content):
         pass
 
-# 服务器管理模块（可选功能，需要配置 API_KEY）
-ServerManager = None
-_server_manager_error = None
-try:
-    from server_manager import ServerManager
-
-    print("✅ 服务器管理模块加载成功")
-except Exception as e:
-    print(f"⚠️ 服务器管理模块加载失败：{e}")
-    _server_manager_error = str(e)
 # 创建一个内存缓冲区，用于存储所有日志
 log_capture_string = io.StringIO()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -97,54 +86,6 @@ def clear_temp_dir(temp_dir: str) -> None:
             os.remove(file_path)
 
 
-# def save_cookies(ctx: RuntimeContext):
-#     """保存 cookies 到文件"""
-#     cookies = ctx.driver.get_cookies()
-#     with open(COOKIE_FILE, "w") as f:
-#         json.dump(cookies, f)
-#     logger.info(f"Cookies 已保存到 {COOKIE_FILE}")
-
-
-# def load_cookies(ctx: RuntimeContext) -> bool:
-#     """从文件加载 cookies"""
-#     if not os.path.exists(COOKIE_FILE):
-#         logger.info("未找到 cookies 文件")
-#         return False
-#     try:
-#         with open(COOKIE_FILE, "r") as f:
-#             cookies = json.load(f)
-#         # 先访问域名以便设置 cookie
-#         ctx.driver.get(build_app_url("/"))
-#         for cookie in cookies:
-#             # 移除可能导致问题的字段
-#             cookie.pop("sameSite", None)
-#             cookie.pop("expiry", None)
-#             try:
-#                 ctx.driver.add_cookie(cookie)
-#             except Exception as e:
-#                 logger.warning(f"添加 cookie 失败: {e}")
-#         logger.info("Cookies 已加载")
-#         return True
-#     except Exception as e:
-#         logger.error(f"加载 cookies 失败: {e}")
-#         return False
-
-
-# def check_login_status(ctx: RuntimeContext) -> bool:
-#     """检查是否已登录"""
-#     ctx.driver.get(build_app_url("/dashboard"))
-#     time.sleep(3)
-#     # 如果跳转到登录页面，说明 cookie 失效
-#     if "login" in ctx.driver.current_url:
-#         logger.info("Cookie 已失效，需要重新登录")
-#         return False
-#     # 检查是否成功加载 dashboard
-#     if ctx.driver.current_url == build_app_url("/dashboard"):
-#         logger.info("Cookie 有效，已登录")
-#         return True
-#     return False
-
-
 def do_login(ctx: RuntimeContext, user: str, pwd: str) -> bool:
     """执行登录流程"""
     logger.info("发起登录请求")
@@ -175,7 +116,6 @@ def do_login(ctx: RuntimeContext, user: str, pwd: str) -> bool:
         # 使用显式等待检测登录是否成功（通过判断 URL 变化）
         ctx.wait.until(EC.url_contains("dashboard"))
         logger.info("登录成功！")
-        # (ctx)save_cookies
         return True
     except TimeoutException:
         logger.error(f"登录超时或失败！当前 URL: {ctx.driver.current_url}")
@@ -436,9 +376,10 @@ def run():
         max_delay = int(os.environ.get("MAX_DELAY", "90"))
         user = os.environ.get("RAINYUN_USER", "")
         pwd = os.environ.get("RAINYUN_PWD", "")
-        debug = os.environ.get("DEBUG", "false").lower() == "true"
-        # 容器环境默认启用 Linux 模式
-        linux = os.environ.get("LINUX_MODE", "true").lower() == "true"
+        # GitHub Action 无状态
+        debug = True
+        # GitHub Actions 环境一定是linux
+        linux = True
 
         # 检查必要配置
         if not user or not pwd:
@@ -449,20 +390,24 @@ def run():
 
         delay = random.randint(0, max_delay)
         delay_sec = random.randint(0, 60)
-        # if not debug or os.getenv("IS_NOT_WAIT") == "true":
-        #     logger.info(f"随机延时等待 {delay} 分钟 {delay_sec} 秒")
-        #     time.sleep(delay * 60 + delay_sec)
+        # 可选：随机延迟（可用于避免集中请求）
+        # logger.info(f"随机延时等待 {delay} 分钟 {delay_sec} 秒")
+        # time.sleep(delay * 60 + delay_sec)
+        
         logger.info("初始化 ddddocr")
         ocr = ddddocr.DdddOcr(ocr=True, show_ad=False)
         det = ddddocr.DdddOcr(det=True, show_ad=False)
+        
         logger.info("初始化 Selenium")
         driver = init_selenium(debug=debug, linux=linux)
+        
         # 过 Selenium 检测
         with open("stealth.min.js", mode="r") as f:
             js = f.read()
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": js
         })
+        
         wait = WebDriverWait(driver, timeout)
         temp_dir = tempfile.mkdtemp(prefix="rainyun-")
         ctx = RuntimeContext(
@@ -473,14 +418,8 @@ def run():
             temp_dir=temp_dir
         )
 
-        
-        logged_in = False
-       
-
-        # 进行正常登录
-        if not logged_in:
-            logged_in = do_login(ctx, user, pwd)
-
+        # 进行登录
+        logged_in = do_login(ctx, user, pwd)
         if not logged_in:
             logger.error("登录失败，任务终止")
             return
@@ -513,25 +452,36 @@ def run():
                     return
             # 如果既没找到领取按钮，也没检测到已签到，说明页面结构可能变了
             raise Exception("未找到签到按钮，且未检测到已签到状态，可能页面结构已变更")
+        
         logger.info("处理验证码")
         ctx.driver.switch_to.frame("tcaptcha_iframe_dy")
         if not process_captcha(ctx):
             # 失败时尝试记录当前页面源码的关键部分，方便排查
             logger.error(f"验证码重试次数过多，任务失败。当前页面状态: {ctx.driver.current_url}")
             raise Exception("验证码识别重试次数过多，签到失败")
+        
         ctx.driver.switch_to.default_content()
-        points_raw = ctx.wait.until(EC.visibility_of_element_located((By.XPATH,
-                                         '//*[@id="app"]/div[1]/div[3]/div[2]/div/div/div[2]/div[1]/div[1]/div/p/div/h3'))).get_attribute(
-            "textContent")
-        current_points = int(''.join(re.findall(r'\d+', points_raw)))
-        logger.info(f"当前剩余积分: {current_points} | 约为 {current_points / POINTS_TO_CNY_RATE:.2f} 元")
+        
+        # 等待积分显示
+        time.sleep(3)
+        
+        try:
+            points_raw = ctx.wait.until(EC.visibility_of_element_located((By.XPATH,
+                                     '//*[@id="app"]/div[1]/div[3]/div[2]/div/div/div[2]/div[1]/div[1]/div/p/div/h3'))).get_attribute(
+                "textContent")
+            current_points = int(''.join(re.findall(r'\d+', points_raw)))
+            logger.info(f"当前剩余积分: {current_points} | 约为 {current_points / POINTS_TO_CNY_RATE:.2f} 元")
+        except Exception as e:
+            logger.warning(f"获取积分信息失败: {e}")
+        
         logger.info("任务执行成功！")
+        
     except Exception as e:
         logger.error(f"脚本执行异常终止: {e}")
 
     finally:
-        # === 核心逻辑：无论成功失败，这里都会执行 ===
-
+        # === 清理资源 ===
+        
         # 1. 关闭浏览器
         if driver:
             try:
@@ -539,34 +489,14 @@ def run():
             except Exception:
                 pass
 
-        # 2. 服务器到期检查和自动续费（需要配置 API_KEY）
-        server_report = ""
-        api_key = os.environ.get("RAINYUN_API_KEY", "")
-        if api_key and ServerManager:
-            logger.info("━━━━━━ 开始检查服务器状态 ━━━━━━")
-            try:
-                manager = ServerManager(api_key)
-                result = manager.check_and_renew()
-                server_report = "\n\n" + manager.generate_report(result)
-                logger.info("服务器检查完成")
-            except Exception as e:
-                logger.error(f"服务器检查失败: {e}")
-                server_report = f"\n\n⚠️ 服务器检查失败: {e}"
-        elif api_key and not ServerManager:
-            # 修复：配置了 API_KEY 但模块加载失败时明确告警
-            logger.error(f"已配置 RAINYUN_API_KEY 但服务器管理模块加载失败: {_server_manager_error}")
-            server_report = f"\n\n⚠️ 服务器管理模块加载失败: {_server_manager_error}"
-        elif not api_key:
-            logger.info("未配置 RAINYUN_API_KEY，跳过服务器管理功能")
-
-        # 3. 获取所有日志内容
+        # 2. 获取所有日志内容
         log_content = log_capture_string.getvalue()
 
-        # 4. 发送通知（签到日志 + 服务器状态，一次性推送）
+        # 3. 发送通知
         logger.info("正在发送通知...")
-        send("雨云签到", log_content + server_report)
+        send("雨云签到", log_content)
 
-        # 5. 释放内存
+        # 4. 释放内存
         log_capture_string.close()
         if temp_dir and not debug:
             shutil.rmtree(temp_dir, ignore_errors=True)
