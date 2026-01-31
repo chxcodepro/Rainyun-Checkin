@@ -773,10 +773,10 @@ def run():
         logger.info(f"超时设置: {timeout}s")
         
         # 随机延迟
-        delay = random.randint(0, max_delay)
-        delay_sec = random.randint(0, 60)
-        logger.debug(f"随机延迟: {delay}m {delay_sec}s")
-        time.sleep(delay * 60 + delay_sec)
+        # delay = random.randint(0, max_delay)
+        # delay_sec = random.randint(0, 60)
+        # logger.debug(f"随机延迟: {delay}m {delay_sec}s")
+        # time.sleep(delay * 60 + delay_sec)
         
         # 初始化组件
         logger.info("初始化组件")
